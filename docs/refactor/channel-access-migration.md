@@ -323,6 +323,17 @@ Keep exporting only:
 - `projectIngressAccessFacts(...)`
 - conformance test helpers
 
+Current shared helpers:
+
+- `createChannelIngressStringAdapter(...)` for one normalized value per entry
+- `createChannelIngressMultiIdentifierAdapter(...)` for one entry expanding to
+  several typed identifiers
+- `findChannelIngressGate(...)`, `findChannelIngressSenderGate(...)`, and
+  `findChannelIngressCommandGate(...)` for graph projections without gate-id
+  literals
+- `decideChannelIngressBundle(...)` for callers that need the same DM/group
+  sender decision and command decision set from one policy bundle
+
 Keep the subpath experimental after the simple, route-heavy, and first
 rich-route canaries. Stabilize only after more rich route and command plugins
 prove the same shape without bundled plugin branches in core.
@@ -373,6 +384,8 @@ For planning docs alone, `pnpm docs:list`, `pnpm check:docs`, and
   decision composition, projection, and turn-admission mapping.
 - The ingress resolver does not accept whole `OpenClawConfig`.
 - The adapter owns identity normalization and subject matching.
+- Multi-identifier adapters use the shared SDK factory unless they need custom
+  invalid or disabled entry diagnostics.
 - Runtime dependencies are resolver dependencies or caller-provided state.
 - Route-heavy plugins express route behavior as ordered gate layers.
 - Command authorization consumes resolved ingress state.

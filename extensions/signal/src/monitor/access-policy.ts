@@ -1,14 +1,16 @@
 import {
+  assertNeverChannelIngressReason,
   createChannelIngressPluginId,
-  decideChannelIngress,
+  createChannelIngressMultiIdentifierAdapter,
+  decideChannelIngressBundle,
+  findChannelIngressCommandGate,
+  findChannelIngressSenderGate,
   resolveChannelIngressState,
-  type ChannelIngressAdapter,
   type ChannelIngressAdapterEntry,
   type ChannelIngressDecision,
   type ChannelIngressIdentifierKind,
   type ChannelIngressSubject,
   type IngressReasonCode,
-  type RedactedIngressMatch,
 } from "openclaw/plugin-sdk/channel-ingress";
 import { createChannelPairingChallengeIssuer } from "openclaw/plugin-sdk/channel-pairing";
 import { upsertChannelPairingRequest } from "openclaw/plugin-sdk/conversation-runtime";
@@ -150,27 +152,9 @@ function normalizeSignalIngressEntry(entry: string, index: number): ChannelIngre
   return entries;
 }
 
-const signalIngressAdapter: ChannelIngressAdapter = {
-  normalizeEntries({ entries }) {
-    return {
-      matchable: entries.flatMap((entry, index) => normalizeSignalIngressEntry(entry, index)),
-      invalid: [],
-      disabled: [],
-    };
-  },
-  matchSubject({ subject, entries }) {
-    const identifiers = new Set(
-      subject.identifiers.map((identifier) => `${identifier.kind}:${identifier.value}`),
-    );
-    const matchedEntryIds = entries
-      .filter((entry) => entry.value === "*" || identifiers.has(`${entry.kind}:${entry.value}`))
-      .map((entry) => entry.opaqueEntryId);
-    return {
-      matched: matchedEntryIds.length > 0,
-      matchedEntryIds,
-    } satisfies RedactedIngressMatch;
-  },
-};
+const signalIngressAdapter = createChannelIngressMultiIdentifierAdapter({
+  normalizeEntry: normalizeSignalIngressEntry,
+});
 
 function createSignalIngressSubject(params: {
   sender: SignalSender;
@@ -206,10 +190,7 @@ function findSenderGateReason(
   decision: ChannelIngressDecision,
   isGroup: boolean,
 ): IngressReasonCode {
-  return (
-    decision.graph.gates.find((gate) => gate.kind === (isGroup ? "groupSender" : "dmSender"))
-      ?.reasonCode ?? decision.reasonCode
-  );
+  return findChannelIngressSenderGate(decision, { isGroup })?.reasonCode ?? decision.reasonCode;
 }
 
 function mapSignalReasonCode(params: {
@@ -280,11 +261,8 @@ function signalDecisionFromIngress(params: {
         return "dmPolicy=pairing (not allowlisted)";
       case DM_GROUP_ACCESS_REASON.DM_POLICY_NOT_ALLOWLISTED:
         return `dmPolicy=${params.dmPolicy} (not allowlisted)`;
-      default:
-        return params.isGroup
-          ? "groupPolicy=allowlist (not allowlisted)"
-          : `dmPolicy=${params.dmPolicy} (not allowlisted)`;
     }
+    return assertNeverChannelIngressReason(reasonCode);
   })();
   return {
     decision,
@@ -299,7 +277,7 @@ function commandAccessFromIngress(ingress: ChannelIngressDecision): {
   commandAuthorized: boolean;
   shouldBlockControlCommand: boolean;
 } {
-  const commandGate = ingress.graph.gates.find((gate) => gate.kind === "command");
+  const commandGate = findChannelIngressCommandGate(ingress);
   return {
     commandAuthorized: commandGate?.allowed === true,
     shouldBlockControlCommand: commandGate?.command?.shouldBlockControlCommand === true,
@@ -396,12 +374,14 @@ export async function resolveSignalAccessState(params: {
       hasControlCommand: params.hasControlCommand === true,
     },
   };
-  const dmIngress = decideChannelIngress(directState, basePolicy);
-  const groupIngress = decideChannelIngress(groupState, basePolicy);
-  const dmCommandIngress = decideChannelIngress(directState, commandPolicy);
-  const groupCommandIngress = decideChannelIngress(groupState, commandPolicy);
+  const ingressBundle = decideChannelIngressBundle({
+    directState,
+    groupState,
+    basePolicy,
+    commandPolicy,
+  });
   const dmAccess = signalDecisionFromIngress({
-    ingress: dmIngress,
+    ingress: ingressBundle.dm,
     isGroup: false,
     dmPolicy: params.dmPolicy,
     groupPolicy: params.groupPolicy,
@@ -409,7 +389,7 @@ export async function resolveSignalAccessState(params: {
     effectiveGroupAllowFrom,
   });
   const groupAccess = signalDecisionFromIngress({
-    ingress: groupIngress,
+    ingress: ingressBundle.group,
     isGroup: true,
     dmPolicy: params.dmPolicy,
     groupPolicy: params.groupPolicy,
@@ -418,7 +398,7 @@ export async function resolveSignalAccessState(params: {
   });
   const resolveAccessDecision = (isGroup: boolean) => (isGroup ? groupAccess : dmAccess);
   const resolveCommandAccess = (isGroup: boolean) =>
-    commandAccessFromIngress(isGroup ? groupCommandIngress : dmCommandIngress);
+    commandAccessFromIngress(isGroup ? ingressBundle.groupCommand : ingressBundle.dmCommand);
   return {
     resolveAccessDecision,
     resolveCommandAccess,

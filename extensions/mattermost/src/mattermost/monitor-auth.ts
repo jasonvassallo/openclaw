@@ -1,15 +1,15 @@
 import {
   createChannelIngressPluginId,
+  createChannelIngressMultiIdentifierAdapter,
   decideChannelIngress,
+  findChannelIngressCommandGate,
   resolveChannelIngressState,
-  type ChannelIngressAdapter,
   type ChannelIngressAdapterEntry,
   type ChannelIngressDecision,
   type ChannelIngressEventInput,
   type ChannelIngressIdentifierKind,
   type ChannelIngressPolicyInput,
   type ChannelIngressSubject,
-  type RedactedIngressMatch,
 } from "openclaw/plugin-sdk/channel-ingress";
 import { parseAccessGroupAllowFromEntry } from "openclaw/plugin-sdk/command-auth";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/text-runtime";
@@ -103,27 +103,9 @@ function normalizeMattermostIngressEntry(
   ];
 }
 
-const mattermostIngressAdapter: ChannelIngressAdapter = {
-  normalizeEntries({ entries }) {
-    return {
-      matchable: entries.flatMap((entry, index) => normalizeMattermostIngressEntry(entry, index)),
-      invalid: [],
-      disabled: [],
-    };
-  },
-  matchSubject({ subject, entries }) {
-    const identifiers = new Set(
-      subject.identifiers.map((identifier) => `${identifier.kind}:${identifier.value}`),
-    );
-    const matchedEntryIds = entries
-      .filter((entry) => entry.value === "*" || identifiers.has(`${entry.kind}:${entry.value}`))
-      .map((entry) => entry.opaqueEntryId);
-    return {
-      matched: matchedEntryIds.length > 0,
-      matchedEntryIds,
-    } satisfies RedactedIngressMatch;
-  },
-};
+const mattermostIngressAdapter = createChannelIngressMultiIdentifierAdapter({
+  normalizeEntry: normalizeMattermostIngressEntry,
+});
 
 function createMattermostIngressSubject(params: {
   senderId: string;
@@ -240,7 +222,7 @@ type MattermostCommandIngressResult = {
 function commandResultFromDecision(
   decision: ChannelIngressDecision,
 ): MattermostCommandIngressResult {
-  const commandGate = decision.graph.gates.find((gate) => gate.id === "command");
+  const commandGate = findChannelIngressCommandGate(decision);
   return {
     decision,
     commandAuthorized: decision.decision === "allow" ? (commandGate?.allowed ?? true) : false,

@@ -4,10 +4,13 @@ import {
 } from "openclaw/plugin-sdk/allow-from";
 import {
   createChannelIngressPluginId,
+  createChannelIngressMultiIdentifierAdapter,
   createChannelIngressSubject,
   decideChannelIngress,
+  findChannelIngressCommandGate,
+  findChannelIngressSenderGate,
   resolveChannelIngressState,
-  type ChannelIngressAdapter,
+  type ChannelIngressAdapterEntry,
   type ChannelIngressDecision,
   type ChannelIngressIdentifierKind,
   type IngressReasonCode,
@@ -27,82 +30,52 @@ function entryId(index: number): string {
   return `imessage-entry-${index + 1}`;
 }
 
-function normalizeIMessageIngressEntry(entry: string): {
-  kind: ChannelIngressIdentifierKind;
-  value: string;
-} | null {
+function normalizeIMessageIngressEntry(entry: string, index: number): ChannelIngressAdapterEntry[] {
   const trimmed = entry.trim();
   if (!trimmed) {
-    return null;
+    return [];
   }
+  let normalized: { kind: ChannelIngressIdentifierKind; value: string } | null;
   if (trimmed === "*") {
-    return { kind: "stable-id", value: "*" };
+    normalized = { kind: "stable-id", value: "*" };
+  } else {
+    const parsed = parseIMessageAllowTarget(trimmed);
+    if (parsed.kind === "chat_id") {
+      normalized = { kind: IMESSAGE_CHAT_ID_KIND, value: String(parsed.chatId) };
+    } else if (parsed.kind === "chat_guid") {
+      normalized = { kind: IMESSAGE_CHAT_GUID_KIND, value: parsed.chatGuid.trim() };
+    } else if (parsed.kind === "chat_identifier") {
+      normalized = {
+        kind: IMESSAGE_CHAT_IDENTIFIER_KIND,
+        value: parsed.chatIdentifier.trim(),
+      };
+    } else {
+      const handle = normalizeIMessageHandle(parsed.handle);
+      normalized = handle ? { kind: "stable-id", value: handle } : null;
+    }
   }
-  const parsed = parseIMessageAllowTarget(trimmed);
-  if (parsed.kind === "chat_id") {
-    return { kind: IMESSAGE_CHAT_ID_KIND, value: String(parsed.chatId) };
-  }
-  if (parsed.kind === "chat_guid") {
-    return { kind: IMESSAGE_CHAT_GUID_KIND, value: parsed.chatGuid.trim() };
-  }
-  if (parsed.kind === "chat_identifier") {
-    return {
-      kind: IMESSAGE_CHAT_IDENTIFIER_KIND,
-      value: parsed.chatIdentifier.trim(),
-    };
-  }
-  const handle = normalizeIMessageHandle(parsed.handle);
-  return handle ? { kind: "stable-id", value: handle } : null;
+  return normalized
+    ? [
+        {
+          opaqueEntryId: entryId(index),
+          kind: normalized.kind,
+          value: normalized.value,
+          sensitivity: "pii",
+        },
+      ]
+    : [];
 }
 
-const imessageIngressAdapter: ChannelIngressAdapter = {
-  normalizeEntries({ entries }) {
-    return {
-      matchable: entries.flatMap((entry, index) => {
-        const normalized = normalizeIMessageIngressEntry(entry);
-        return normalized
-          ? [
-              {
-                opaqueEntryId: entryId(index),
-                kind: normalized.kind,
-                value: normalized.value,
-                sensitivity: "pii" as const,
-              },
-            ]
-          : [];
-      }),
-      invalid: [],
-      disabled: [],
-    };
+const imessageIngressAdapter = createChannelIngressMultiIdentifierAdapter({
+  normalizeEntry: normalizeIMessageIngressEntry,
+  getSubjectMatchKeys(identifier) {
+    const normalized =
+      identifier.kind === "stable-id"
+        ? normalizeIMessageHandle(identifier.value)
+        : identifier.value.trim();
+    return normalized ? [`${identifier.kind}:${normalized}`] : [];
   },
-  matchSubject({ subject, entries }) {
-    const byKind = new Map<ChannelIngressIdentifierKind, Set<string>>();
-    for (const identifier of subject.identifiers) {
-      const normalized =
-        identifier.kind === "stable-id"
-          ? normalizeIMessageHandle(identifier.value)
-          : identifier.value.trim();
-      if (!normalized) {
-        continue;
-      }
-      const values = byKind.get(identifier.kind) ?? new Set<string>();
-      values.add(normalized);
-      byKind.set(identifier.kind, values);
-    }
-    const matchedEntryIds = entries
-      .filter((entry) => {
-        if (entry.value === "*") {
-          return true;
-        }
-        return byKind.get(entry.kind)?.has(entry.value) === true;
-      })
-      .map((entry) => entry.opaqueEntryId);
-    return {
-      matched: matchedEntryIds.length > 0,
-      matchedEntryIds,
-    };
-  },
-};
+});
 
 function normalizeDmPolicy(policy: string): DmPolicy {
   return policy === "open" || policy === "allowlist" || policy === "disabled" ? policy : "pairing";
@@ -116,10 +89,7 @@ function findSenderGateReason(
   decision: ChannelIngressDecision,
   isGroup: boolean,
 ): IngressReasonCode {
-  return (
-    decision.graph.gates.find((gate) => gate.kind === (isGroup ? "groupSender" : "dmSender"))
-      ?.reasonCode ?? decision.reasonCode
-  );
+  return findChannelIngressSenderGate(decision, { isGroup })?.reasonCode ?? decision.reasonCode;
 }
 
 function accessDecisionFromIngress(decision: ChannelIngressDecision): IMessageAccessDecision {
@@ -130,7 +100,7 @@ function accessDecisionFromIngress(decision: ChannelIngressDecision): IMessageAc
 }
 
 function commandAuthorizedFromIngress(decision: ChannelIngressDecision): boolean {
-  return decision.graph.gates.find((gate) => gate.kind === "command")?.allowed === true;
+  return findChannelIngressCommandGate(decision)?.allowed === true;
 }
 
 function subjectIdentifiers(params: {

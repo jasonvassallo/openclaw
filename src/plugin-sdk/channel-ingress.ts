@@ -1,8 +1,13 @@
 import {
   decideChannelIngress,
+  decideChannelIngressBundle,
+  findChannelIngressCommandGate,
+  findChannelIngressGate,
+  findChannelIngressSenderGate,
   mapChannelIngressDecisionToTurnAdmission,
   projectIngressAccessFacts,
   resolveChannelIngressState as resolveChannelIngressStateInternal,
+  CHANNEL_INGRESS_GATE_SELECTORS,
 } from "../channels/message-access/index.js";
 import type {
   ChannelIngressIdentifierKind,
@@ -18,7 +23,12 @@ import type {
 import { normalizeStringEntries } from "../shared/string-normalization.js";
 
 export {
+  CHANNEL_INGRESS_GATE_SELECTORS,
   decideChannelIngress,
+  decideChannelIngressBundle,
+  findChannelIngressCommandGate,
+  findChannelIngressGate,
+  findChannelIngressSenderGate,
   mapChannelIngressDecisionToTurnAdmission,
   projectIngressAccessFacts,
 };
@@ -26,6 +36,8 @@ export type {
   AccessGraph,
   AccessGraphGate,
   AccessGroupMembershipFact,
+  ChannelIngressDecisionBundle,
+  ChannelIngressGateSelector,
   ChannelIngressAdmission,
   ChannelIngressChannelId,
   ChannelIngressDecision,
@@ -78,6 +90,15 @@ export type CreateChannelIngressStringAdapterParams = {
   sensitivity?: "normal" | "pii";
 };
 
+export type CreateChannelIngressMultiIdentifierAdapterParams = {
+  normalizeEntry: (entry: string, index: number) => readonly ChannelIngressAdapterEntry[];
+  getEntryMatchKey?: (entry: ChannelIngressAdapterEntry) => string | null | undefined;
+  getSubjectMatchKeys?: (
+    identifier: ChannelIngressSubjectIdentifier,
+  ) => readonly (string | null | undefined)[];
+  isWildcardEntry?: (entry: ChannelIngressAdapterEntry) => boolean;
+};
+
 function defaultNormalize(value: string): string {
   return value;
 }
@@ -95,6 +116,13 @@ function resolveDangerous(
   entry: string,
 ): boolean | undefined {
   return typeof dangerous === "function" ? dangerous(entry) : dangerous;
+}
+
+function defaultIngressMatchKey(params: {
+  kind: ChannelIngressIdentifierKind;
+  value: string;
+}): string {
+  return `${params.kind}:${params.value}`;
 }
 
 export function createChannelIngressPluginId(id: string): ChannelIngressPluginId {
@@ -171,6 +199,49 @@ export function createChannelIngressStringAdapter(
       };
     },
   };
+}
+
+export function createChannelIngressMultiIdentifierAdapter(
+  params: CreateChannelIngressMultiIdentifierAdapterParams,
+): ChannelIngressAdapter {
+  const getEntryMatchKey = params.getEntryMatchKey ?? defaultIngressMatchKey;
+  const getSubjectMatchKeys =
+    params.getSubjectMatchKeys ??
+    ((identifier: ChannelIngressSubjectIdentifier) => [defaultIngressMatchKey(identifier)]);
+  const isWildcardEntry = params.isWildcardEntry ?? ((entry) => entry.value === "*");
+  return {
+    normalizeEntries({ entries }) {
+      return {
+        matchable: entries.flatMap((entry, index) => params.normalizeEntry(entry, index)),
+        invalid: [],
+        disabled: [],
+      };
+    },
+    matchSubject({ subject, entries }) {
+      const subjectKeys = new Set(
+        subject.identifiers.flatMap((identifier) =>
+          getSubjectMatchKeys(identifier).filter((key): key is string => Boolean(key)),
+        ),
+      );
+      const matchedEntryIds = entries
+        .filter((entry) => {
+          if (isWildcardEntry(entry)) {
+            return true;
+          }
+          const key = getEntryMatchKey(entry);
+          return key ? subjectKeys.has(key) : false;
+        })
+        .map((entry) => entry.opaqueEntryId);
+      return {
+        matched: matchedEntryIds.length > 0,
+        matchedEntryIds,
+      };
+    },
+  };
+}
+
+export function assertNeverChannelIngressReason(reasonCode: never): never {
+  throw new Error(`Unhandled channel ingress reason code: ${String(reasonCode)}`);
 }
 
 export async function resolveChannelIngressState(

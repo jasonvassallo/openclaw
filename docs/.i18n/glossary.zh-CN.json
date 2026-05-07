@@ -40,6 +40,18 @@
     "target": "频道消息 API"
   },
   {
+    "source": "Channel ingress access graph",
+    "target": "频道入口访问图"
+  },
+  {
+    "source": "Channel ingress API",
+    "target": "频道入口 API"
+  },
+  {
+    "source": "Channel ingress migration",
+    "target": "频道入口迁移"
+  },
+  {
     "source": "Talk mode",
     "target": "Talk 模式"
   },

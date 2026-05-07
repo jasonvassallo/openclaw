@@ -3,6 +3,8 @@ import {
   createChannelIngressStringAdapter,
   createChannelIngressSubject,
   decideChannelIngress,
+  findChannelIngressCommandGate,
+  findChannelIngressSenderGate,
   resolveChannelIngressState,
   type ChannelIngressDecision,
   type IngressReasonCode,
@@ -96,10 +98,7 @@ function findSenderGateReason(
   decision: ChannelIngressDecision,
   isGroup: boolean,
 ): IngressReasonCode {
-  return (
-    decision.graph.gates.find((gate) => gate.kind === (isGroup ? "groupSender" : "dmSender"))
-      ?.reasonCode ?? decision.reasonCode
-  );
+  return findChannelIngressSenderGate(decision, { isGroup })?.reasonCode ?? decision.reasonCode;
 }
 
 function accessDecisionFromIngress(
@@ -147,7 +146,7 @@ function commandAuthorizedFromIngress(params: {
   if (!params.includeCommand) {
     return undefined;
   }
-  return params.decision.graph.gates.find((gate) => gate.kind === "command")?.allowed === true;
+  return findChannelIngressCommandGate(params.decision)?.allowed === true;
 }
 
 function isNormalizedSenderAllowed(allowEntries: string[], sender?: string | null): boolean {

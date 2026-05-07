@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   decideChannelIngress,
+  findChannelIngressSenderGate,
   projectIngressAccessFacts,
   resolveChannelIngressState,
   type ChannelIngressPolicyInput,
@@ -339,7 +340,7 @@ describe("channel message access ingress", () => {
       admission: "dispatch",
       decision: "allow",
     });
-    expect(decision.graph.gates.find((gate) => gate.id === "sender:dm")).toMatchObject({
+    expect(findChannelIngressSenderGate(decision, { isGroup: false })).toMatchObject({
       effect: "ignore",
       reasonCode: "sender_not_required",
     });

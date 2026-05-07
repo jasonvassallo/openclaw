@@ -1,15 +1,15 @@
 import {
   createChannelIngressPluginId,
+  createChannelIngressMultiIdentifierAdapter,
   decideChannelIngress,
+  findChannelIngressCommandGate,
   resolveChannelIngressState,
   type AccessGroupMembershipFact,
-  type ChannelIngressAdapter,
   type ChannelIngressAdapterEntry,
   type ChannelIngressEventInput,
   type ChannelIngressIdentifierKind,
   type ChannelIngressPolicyInput,
   type ChannelIngressSubject,
-  type RedactedIngressMatch,
 } from "openclaw/plugin-sdk/channel-ingress";
 import { parseAccessGroupAllowFromEntry } from "openclaw/plugin-sdk/command-auth";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-types";
@@ -128,34 +128,9 @@ function normalizeDiscordIngressEntry(entry: string, index: number): ChannelIngr
     : [];
 }
 
-function matchDiscordIngressSubject(params: {
-  subject: ChannelIngressSubject;
-  entries: readonly ChannelIngressAdapterEntry[];
-}): RedactedIngressMatch {
-  const values = new Set(
-    params.subject.identifiers.map((identifier) => `${identifier.kind}:${identifier.value}`),
-  );
-  const matchedEntryIds = params.entries
-    .filter((entry) => entry.value === "*" || values.has(`${entry.kind}:${entry.value}`))
-    .map((entry) => entry.opaqueEntryId);
-  return {
-    matched: matchedEntryIds.length > 0,
-    matchedEntryIds,
-  };
-}
-
-const discordDmIngressAdapter: ChannelIngressAdapter = {
-  normalizeEntries({ entries }) {
-    return {
-      matchable: entries.flatMap((entry, index) => normalizeDiscordIngressEntry(entry, index)),
-      invalid: [],
-      disabled: [],
-    };
-  },
-  matchSubject({ subject, entries }) {
-    return matchDiscordIngressSubject({ subject, entries });
-  },
-};
+const discordDmIngressAdapter = createChannelIngressMultiIdentifierAdapter({
+  normalizeEntry: normalizeDiscordIngressEntry,
+});
 
 function createDiscordDmIngressSubject(sender: {
   id: string;
@@ -408,7 +383,7 @@ export async function resolveDiscordDmCommandAccess(params: {
     },
   };
   const decision = decideChannelIngress(ingressState, policy);
-  const commandGate = decision.graph.gates.find((gate) => gate.id === "command");
+  const commandGate = findChannelIngressCommandGate(decision);
   const senderMatched =
     ingressState.allowlists.dm.match.matched || ingressState.allowlists.pairingStore.match.matched;
   const allowMatch = resolveCompatibilityAllowMatch({
@@ -506,7 +481,7 @@ export async function resolveDiscordTextCommandAccess(params: {
       modeWhenAccessGroupsOff: "configured",
     },
   });
-  const commandGate = decision.graph.gates.find((gate) => gate.kind === "command");
+  const commandGate = findChannelIngressCommandGate(decision);
   return {
     commandAuthorized: commandGate?.allowed === true,
     shouldBlockControlCommand: commandGate?.command?.shouldBlockControlCommand === true,

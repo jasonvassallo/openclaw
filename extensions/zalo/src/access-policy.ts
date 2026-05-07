@@ -3,6 +3,8 @@ import {
   createChannelIngressStringAdapter,
   createChannelIngressSubject,
   decideChannelIngress,
+  findChannelIngressCommandGate,
+  findChannelIngressSenderGate,
   resolveChannelIngressState,
   type ChannelIngressDecision,
   type ChannelIngressPolicyInput,
@@ -53,10 +55,7 @@ function findSenderGateReason(
   decision: ChannelIngressDecision,
   isGroup: boolean,
 ): IngressReasonCode {
-  return (
-    decision.graph.gates.find((gate) => gate.kind === (isGroup ? "groupSender" : "dmSender"))
-      ?.reasonCode ?? decision.reasonCode
-  );
+  return findChannelIngressSenderGate(decision, { isGroup })?.reasonCode ?? decision.reasonCode;
 }
 
 function mapZaloGroupReason(reasonCode: IngressReasonCode): SenderGroupAccessDecision["reason"] {
@@ -101,7 +100,7 @@ function commandAuthorizedFromIngress(params: {
   if (!params.shouldComputeAuth) {
     return undefined;
   }
-  return params.decision.graph.gates.find((gate) => gate.kind === "command")?.allowed === true;
+  return findChannelIngressCommandGate(params.decision)?.allowed === true;
 }
 
 export async function resolveZaloMessageIngressAccess(params: {

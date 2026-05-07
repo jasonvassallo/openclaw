@@ -12,6 +12,7 @@ import {
   resolveEnvelopeFormatOptions,
   resolveInboundMentionDecision,
 } from "openclaw/plugin-sdk/channel-inbound";
+import { findChannelIngressSenderGate } from "openclaw/plugin-sdk/channel-ingress";
 import { resolveChannelMessageSourceReplyDeliveryMode } from "openclaw/plugin-sdk/channel-message";
 import { hasControlCommand } from "openclaw/plugin-sdk/command-detection";
 import { shouldHandleTextCommands } from "openclaw/plugin-sdk/command-surface";
@@ -430,7 +431,7 @@ export async function prepareSlackMessage(params: {
     allowTextCommands,
     hasControlCommand: hasControlCommandInMessage,
   });
-  const senderGate = messageIngress.decision.graph.gates.find((gate) => gate.id === "sender:group");
+  const senderGate = findChannelIngressSenderGate(messageIngress.decision, { isGroup: true });
   if (isRoom && senderGate?.allowed === false) {
     logVerbose(`Blocked unauthorized slack sender ${senderId} (not in channel users)`);
     return null;

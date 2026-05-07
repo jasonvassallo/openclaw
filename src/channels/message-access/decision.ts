@@ -322,3 +322,24 @@ export function decideChannelIngress(
   }
   return decisiveDecision({ admission: "dispatch", decision: "allow", gate: activation, gates });
 }
+
+export type ChannelIngressDecisionBundle = {
+  dm: ChannelIngressDecision;
+  group: ChannelIngressDecision;
+  dmCommand: ChannelIngressDecision;
+  groupCommand: ChannelIngressDecision;
+};
+
+export function decideChannelIngressBundle(params: {
+  directState: ChannelIngressState;
+  groupState: ChannelIngressState;
+  basePolicy: ChannelIngressPolicyInput;
+  commandPolicy: ChannelIngressPolicyInput;
+}): ChannelIngressDecisionBundle {
+  return {
+    dm: decideChannelIngress(params.directState, params.basePolicy),
+    group: decideChannelIngress(params.groupState, params.basePolicy),
+    dmCommand: decideChannelIngress(params.directState, params.commandPolicy),
+    groupCommand: decideChannelIngress(params.groupState, params.commandPolicy),
+  };
+}

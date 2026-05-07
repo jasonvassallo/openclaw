@@ -1,22 +1,12 @@
 import type { AccessFacts, ChannelTurnAdmission } from "../turn/types.js";
 import { redactedAllowlistDiagnostics as projectAllowlist } from "./allowlist.js";
+import { CHANNEL_INGRESS_GATE_SELECTORS, findChannelIngressGate } from "./gates.js";
 import type {
   AccessGraphGate,
   ChannelIngressDecision,
   ChannelIngressSideEffectResult,
-  IngressGateKind,
-  IngressGatePhase,
   ResolvedIngressAllowlist,
 } from "./types.js";
-
-function findGate(
-  decision: ChannelIngressDecision,
-  selector: { phase: IngressGatePhase; kind: IngressGateKind },
-): AccessGraphGate | undefined {
-  return decision.graph.gates.find(
-    (gate) => gate.phase === selector.phase && gate.kind === selector.kind,
-  );
-}
 
 function projectGroupPolicy(
   gate: AccessGraphGate | undefined,
@@ -59,11 +49,11 @@ function projectDmDecision(
 }
 
 export function projectIngressAccessFacts(decision: ChannelIngressDecision): AccessFacts {
-  const command = findGate(decision, { phase: "command", kind: "command" });
-  const activation = findGate(decision, { phase: "activation", kind: "mention" });
-  const dmSender = findGate(decision, { phase: "sender", kind: "dmSender" });
-  const groupSender = findGate(decision, { phase: "sender", kind: "groupSender" });
-  const event = findGate(decision, { phase: "event", kind: "event" });
+  const command = findChannelIngressGate(decision, CHANNEL_INGRESS_GATE_SELECTORS.command);
+  const activation = findChannelIngressGate(decision, CHANNEL_INGRESS_GATE_SELECTORS.activation);
+  const dmSender = findChannelIngressGate(decision, CHANNEL_INGRESS_GATE_SELECTORS.dmSender);
+  const groupSender = findChannelIngressGate(decision, CHANNEL_INGRESS_GATE_SELECTORS.groupSender);
+  const event = findChannelIngressGate(decision, CHANNEL_INGRESS_GATE_SELECTORS.event);
   return {
     dm: {
       decision: projectDmDecision(decision, dmSender),

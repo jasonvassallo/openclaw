@@ -1,15 +1,15 @@
 import {
   createChannelIngressPluginId,
+  createChannelIngressMultiIdentifierAdapter,
   decideChannelIngress,
+  findChannelIngressCommandGate,
   resolveChannelIngressState,
-  type ChannelIngressAdapter,
   type ChannelIngressAdapterEntry,
   type ChannelIngressDecision,
   type ChannelIngressEventInput,
   type ChannelIngressIdentifierKind,
   type ChannelIngressPolicyInput,
   type ChannelIngressSubject,
-  type RedactedIngressMatch,
 } from "openclaw/plugin-sdk/channel-ingress";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
@@ -144,27 +144,9 @@ function normalizeSlackIngressEntry(entry: string, index: number): ChannelIngres
   ];
 }
 
-const slackIngressAdapter: ChannelIngressAdapter = {
-  normalizeEntries({ entries }) {
-    return {
-      matchable: entries.flatMap((entry, index) => normalizeSlackIngressEntry(entry, index)),
-      invalid: [],
-      disabled: [],
-    };
-  },
-  matchSubject({ subject, entries }) {
-    const identifiers = new Set(
-      subject.identifiers.map((identifier) => `${identifier.kind}:${identifier.value}`),
-    );
-    const matchedEntryIds = entries
-      .filter((entry) => entry.value === "*" || identifiers.has(`${entry.kind}:${entry.value}`))
-      .map((entry) => entry.opaqueEntryId);
-    return {
-      matched: matchedEntryIds.length > 0,
-      matchedEntryIds,
-    } satisfies RedactedIngressMatch;
-  },
-};
+const slackIngressAdapter = createChannelIngressMultiIdentifierAdapter({
+  normalizeEntry: normalizeSlackIngressEntry,
+});
 
 function createSlackIngressSubject(params: {
   senderId: string;
@@ -515,7 +497,7 @@ function slackIngressConversationKind(
 }
 
 function commandResultFromDecision(decision: ChannelIngressDecision): SlackCommandIngressResult {
-  const commandGate = decision.graph.gates.find((gate) => gate.id === "command");
+  const commandGate = findChannelIngressCommandGate(decision);
   return {
     decision,
     commandAuthorized: commandGate?.allowed ?? true,

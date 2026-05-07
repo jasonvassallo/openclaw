@@ -130,6 +130,16 @@ One configured entry may expand to several canonical forms, disabled unsafe
 fallbacks, or invalid diagnostics. `matchSubject(...)` receives normalized
 internal entries only; it should never parse raw config strings.
 
+Most plugins that expand one configured entry into multiple identifier forms
+should use `createChannelIngressMultiIdentifierAdapter(...)`. It centralizes
+the common `kind:value` matching rule, wildcard matching, and redacted match
+ids while leaving platform-specific normalization local to the plugin.
+
+Use `findChannelIngressGate(...)`, `findChannelIngressSenderGate(...)`, and
+`findChannelIngressCommandGate(...)` instead of matching graph gates by string
+ids. The graph ids are diagnostics; selectors are the stable programmatic
+lookup surface.
+
 ## Allowlist state
 
 Ingress needs structured allowlist state beside the existing array API:

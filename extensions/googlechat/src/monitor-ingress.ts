@@ -1,15 +1,16 @@
 import {
+  assertNeverChannelIngressReason,
   createChannelIngressPluginId,
+  createChannelIngressMultiIdentifierAdapter,
   decideChannelIngress,
+  findChannelIngressSenderGate,
   resolveChannelIngressState,
-  type ChannelIngressAdapter,
   type ChannelIngressAdapterEntry,
   type ChannelIngressDecision,
   type ChannelIngressIdentifierKind,
   type ChannelIngressPolicyInput,
   type ChannelIngressSubject,
   type IngressReasonCode,
-  type RedactedIngressMatch,
   type RouteGateFacts,
 } from "openclaw/plugin-sdk/channel-ingress";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/text-runtime";
@@ -120,27 +121,9 @@ function normalizeGoogleChatIngressEntry(
   return entries;
 }
 
-const googleChatIngressAdapter: ChannelIngressAdapter = {
-  normalizeEntries({ entries }) {
-    return {
-      matchable: entries.flatMap((entry, index) => normalizeGoogleChatIngressEntry(entry, index)),
-      invalid: [],
-      disabled: [],
-    };
-  },
-  matchSubject({ subject, entries }) {
-    const identifiers = new Set(
-      subject.identifiers.map((identifier) => `${identifier.kind}:${identifier.value}`),
-    );
-    const matchedEntryIds = entries
-      .filter((entry) => entry.value === "*" || identifiers.has(`${entry.kind}:${entry.value}`))
-      .map((entry) => entry.opaqueEntryId);
-    return {
-      matched: matchedEntryIds.length > 0,
-      matchedEntryIds,
-    } satisfies RedactedIngressMatch;
-  },
-};
+const googleChatIngressAdapter = createChannelIngressMultiIdentifierAdapter({
+  normalizeEntry: normalizeGoogleChatIngressEntry,
+});
 
 function createGoogleChatIngressSubject(params: {
   senderId: string;
@@ -242,11 +225,7 @@ function findSenderGateReason(
   decision: ChannelIngressDecision,
   isGroup: boolean,
 ): IngressReasonCode {
-  return (
-    decision.graph.gates.find((gate) =>
-      isGroup ? gate.kind === "groupSender" : gate.kind === "dmSender",
-    )?.reasonCode ?? decision.reasonCode
-  );
+  return findChannelIngressSenderGate(decision, { isGroup })?.reasonCode ?? decision.reasonCode;
 }
 
 function mapGoogleChatAccessReasonCode(params: {
@@ -315,11 +294,8 @@ function accessFromIngress(params: {
         return "dmPolicy=pairing (not allowlisted)";
       case "dm_policy_not_allowlisted":
         return `dmPolicy=${params.dmPolicy} (not allowlisted)`;
-      default:
-        return params.isGroup
-          ? "groupPolicy=allowlist (not allowlisted)"
-          : `dmPolicy=${params.dmPolicy} (not allowlisted)`;
     }
+    return assertNeverChannelIngressReason(reasonCode);
   })();
   return {
     decision,

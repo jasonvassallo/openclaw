@@ -1,5 +1,6 @@
 import {
   decideChannelIngress,
+  findChannelIngressCommandGate,
   resolveChannelIngressState,
   type ChannelIngressEventInput,
 } from "openclaw/plugin-sdk/channel-ingress";
@@ -85,7 +86,7 @@ export async function resolveTelegramCommandIngressAuthorization(params: {
       modeWhenAccessGroupsOff: params.modeWhenAccessGroupsOff ?? "configured",
     },
   });
-  const commandGate = decision.graph.gates.find((gate) => gate.id === "command");
+  const commandGate = findChannelIngressCommandGate(decision);
   return {
     commandAuthorized: commandGate?.allowed === true,
     shouldBlockControlCommand:

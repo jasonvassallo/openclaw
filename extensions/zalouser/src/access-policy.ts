@@ -4,10 +4,11 @@ import {
 } from "openclaw/plugin-sdk/allow-from";
 import {
   createChannelIngressPluginId,
+  createChannelIngressMultiIdentifierAdapter,
   createChannelIngressSubject,
   decideChannelIngress,
+  findChannelIngressSenderGate,
   resolveChannelIngressState,
-  type ChannelIngressAdapter,
   type ChannelIngressDecision,
   type IngressReasonCode,
 } from "openclaw/plugin-sdk/channel-ingress";
@@ -30,43 +31,29 @@ function normalizeZalouserSender(value: string): string | null {
   return normalized || null;
 }
 
-const zalouserIngressAdapter: ChannelIngressAdapter = {
-  normalizeEntries({ entries }) {
-    return {
-      matchable: entries.flatMap((entry, index) => {
-        const raw = entry.trim();
-        const normalized = raw === "*" ? "*" : normalizeZalouserSender(raw);
-        return normalized
-          ? [
-              {
-                opaqueEntryId: `zalouser-entry-${index + 1}`,
-                kind: "stable-id" as const,
-                value: normalized,
-                sensitivity: "pii" as const,
-              },
-            ]
-          : [];
-      }),
-      invalid: [],
-      disabled: [],
-    };
+const zalouserIngressAdapter = createChannelIngressMultiIdentifierAdapter({
+  normalizeEntry(entry, index) {
+    const raw = entry.trim();
+    const normalized = raw === "*" ? "*" : normalizeZalouserSender(raw);
+    return normalized
+      ? [
+          {
+            opaqueEntryId: `zalouser-entry-${index + 1}`,
+            kind: "stable-id" as const,
+            value: normalized,
+            sensitivity: "pii" as const,
+          },
+        ]
+      : [];
   },
-  matchSubject({ subject, entries }) {
-    const subjects = new Set(
-      subject.identifiers
-        .filter((identifier) => identifier.kind === "stable-id")
-        .map((identifier) => normalizeZalouserSender(identifier.value))
-        .filter((entry): entry is string => Boolean(entry)),
-    );
-    const matchedEntryIds = entries
-      .filter((entry) => entry.value === "*" || subjects.has(entry.value))
-      .map((entry) => entry.opaqueEntryId);
-    return {
-      matched: matchedEntryIds.length > 0,
-      matchedEntryIds,
-    };
+  getSubjectMatchKeys(identifier) {
+    if (identifier.kind !== "stable-id") {
+      return [];
+    }
+    const normalized = normalizeZalouserSender(identifier.value);
+    return normalized ? [`stable-id:${normalized}`] : [];
   },
-};
+});
 
 function normalizeDmPolicy(policy: string): DmPolicy {
   return policy === "open" || policy === "allowlist" || policy === "disabled" ? policy : "pairing";
@@ -80,10 +67,7 @@ function findSenderGateReason(
   decision: ChannelIngressDecision,
   isGroup: boolean,
 ): IngressReasonCode {
-  return (
-    decision.graph.gates.find((gate) => gate.kind === (isGroup ? "groupSender" : "dmSender"))
-      ?.reasonCode ?? decision.reasonCode
-  );
+  return findChannelIngressSenderGate(decision, { isGroup })?.reasonCode ?? decision.reasonCode;
 }
 
 function mapReasonCode(params: {

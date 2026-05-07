@@ -1,15 +1,17 @@
 import {
+  assertNeverChannelIngressReason,
   createChannelIngressPluginId,
+  createChannelIngressMultiIdentifierAdapter,
   decideChannelIngress,
+  findChannelIngressCommandGate,
+  findChannelIngressSenderGate,
   resolveChannelIngressState,
-  type ChannelIngressAdapter,
   type ChannelIngressAdapterEntry,
   type ChannelIngressDecision,
   type ChannelIngressIdentifierKind,
   type ChannelIngressPolicyInput,
   type ChannelIngressSubject,
   type IngressReasonCode,
-  type RedactedIngressMatch,
   type RouteGateFacts,
 } from "openclaw/plugin-sdk/channel-ingress";
 import { normalizeOptionalLowercaseString } from "openclaw/plugin-sdk/text-runtime";
@@ -107,27 +109,9 @@ function normalizeMSTeamsIngressEntry(entry: string, index: number): ChannelIngr
   ];
 }
 
-const msteamsIngressAdapter: ChannelIngressAdapter = {
-  normalizeEntries({ entries }) {
-    return {
-      matchable: entries.flatMap((entry, index) => normalizeMSTeamsIngressEntry(entry, index)),
-      invalid: [],
-      disabled: [],
-    };
-  },
-  matchSubject({ subject, entries }) {
-    const identifiers = new Set(
-      subject.identifiers.map((identifier) => `${identifier.kind}:${identifier.value}`),
-    );
-    const matchedEntryIds = entries
-      .filter((entry) => entry.value === "*" || identifiers.has(`${entry.kind}:${entry.value}`))
-      .map((entry) => entry.opaqueEntryId);
-    return {
-      matched: matchedEntryIds.length > 0,
-      matchedEntryIds,
-    } satisfies RedactedIngressMatch;
-  },
-};
+const msteamsIngressAdapter = createChannelIngressMultiIdentifierAdapter({
+  normalizeEntry: normalizeMSTeamsIngressEntry,
+});
 
 function createMSTeamsIngressSubject(params: {
   senderId: string;
@@ -186,9 +170,8 @@ function findGateReason(
   isDirectMessage: boolean,
 ): IngressReasonCode {
   return (
-    decision.graph.gates.find((gate) =>
-      isDirectMessage ? gate.kind === "dmSender" : gate.kind === "groupSender",
-    )?.reasonCode ?? decision.reasonCode
+    findChannelIngressSenderGate(decision, { isGroup: !isDirectMessage })?.reasonCode ??
+    decision.reasonCode
   );
 }
 
@@ -258,11 +241,8 @@ function msteamsAccessFromIngress(params: {
         return "dmPolicy=pairing (not allowlisted)";
       case "dm_policy_not_allowlisted":
         return `dmPolicy=${params.dmPolicy} (not allowlisted)`;
-      default:
-        return params.isDirectMessage
-          ? `dmPolicy=${params.dmPolicy} (not allowlisted)`
-          : "groupPolicy=allowlist (not allowlisted)";
     }
+    return assertNeverChannelIngressReason(reasonCode);
   })();
   return {
     decision,
@@ -314,7 +294,7 @@ function commandAccessFromIngress(ingress: ChannelIngressDecision): {
   commandAuthorized: boolean;
   shouldBlockControlCommand: boolean;
 } {
-  const commandGate = ingress.graph.gates.find((gate) => gate.kind === "command");
+  const commandGate = findChannelIngressCommandGate(ingress);
   return {
     commandAuthorized: commandGate?.allowed === true,
     shouldBlockControlCommand: commandGate?.command?.shouldBlockControlCommand === true,

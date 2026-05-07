@@ -1,5 +1,6 @@
 import type { SlackActionMiddlewareArgs, SlackCommandMiddlewareArgs } from "@slack/bolt";
 import { resolveDefaultModelForAgent } from "openclaw/plugin-sdk/agent-runtime";
+import { findChannelIngressSenderGate } from "openclaw/plugin-sdk/channel-ingress";
 import { createChannelMessageReplyPipeline } from "openclaw/plugin-sdk/channel-message";
 import {
   formatCommandArgMenuTitle,
@@ -534,9 +535,7 @@ export async function registerSlackMonitorSlashCommands(params: {
         eventKind: "slash-command",
         modeWhenAccessGroupsOff: "configured",
       });
-      const senderGate = slashIngress.decision.graph.gates.find(
-        (gate) => gate.id === "sender:group",
-      );
+      const senderGate = findChannelIngressSenderGate(slashIngress.decision, { isGroup: true });
       if (isRoom && senderGate?.allowed === false) {
         await respond({
           text: "You are not authorized to use this command here.",

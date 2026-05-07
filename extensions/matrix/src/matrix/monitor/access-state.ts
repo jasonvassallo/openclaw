@@ -1,15 +1,15 @@
 import { mergeDmAllowFromSources } from "openclaw/plugin-sdk/allow-from";
 import {
   createChannelIngressPluginId,
+  createChannelIngressMultiIdentifierAdapter,
   decideChannelIngress,
+  findChannelIngressCommandGate,
   resolveChannelIngressState,
-  type ChannelIngressAdapter,
   type ChannelIngressAdapterEntry,
   type ChannelIngressDecision,
   type ChannelIngressPolicyInput,
   type ChannelIngressState,
   type ChannelIngressSubject,
-  type RedactedIngressMatch,
 } from "openclaw/plugin-sdk/channel-ingress";
 import { normalizeMatrixAllowList, resolveMatrixAllowListMatch } from "./allowlist.js";
 
@@ -51,45 +51,26 @@ function createMatrixIngressAdapterEntry(value: string, index: number): ChannelI
   };
 }
 
-function matrixSubjectCandidates(subject: ChannelIngressSubject): Set<string> {
-  const candidates = new Set<string>();
-  for (const identifier of subject.identifiers) {
+const matrixIngressAdapter = createChannelIngressMultiIdentifierAdapter({
+  normalizeEntry(entry, index) {
+    const normalized = normalizeMatrixEntry(entry);
+    return normalized ? [createMatrixIngressAdapterEntry(normalized, index)] : [];
+  },
+  getSubjectMatchKeys(identifier) {
     if (identifier.kind !== "stable-id") {
-      continue;
+      return [];
     }
     const normalized = normalizeMatrixEntry(identifier.value);
     if (!normalized || normalized === "*") {
-      continue;
+      return [];
     }
-    candidates.add(normalized);
-    candidates.add(`matrix:${normalized}`);
-    candidates.add(`user:${normalized}`);
-  }
-  return candidates;
-}
-
-const matrixIngressAdapter: ChannelIngressAdapter = {
-  normalizeEntries({ entries }) {
-    return {
-      matchable: entries.flatMap((entry, index) => {
-        const normalized = normalizeMatrixEntry(entry);
-        return normalized ? [createMatrixIngressAdapterEntry(normalized, index)] : [];
-      }),
-      invalid: [],
-      disabled: [],
-    };
+    return [
+      `stable-id:${normalized}`,
+      `stable-id:matrix:${normalized}`,
+      `stable-id:user:${normalized}`,
+    ];
   },
-  matchSubject({ subject, entries }) {
-    const candidates = matrixSubjectCandidates(subject);
-    const matchedEntryIds = entries
-      .filter((entry) => entry.value === "*" || candidates.has(entry.value))
-      .map((entry) => entry.opaqueEntryId);
-    return {
-      matched: matchedEntryIds.length > 0,
-      matchedEntryIds,
-    } satisfies RedactedIngressMatch;
-  },
-};
+});
 
 function createMatrixIngressSubject(senderId: string): ChannelIngressSubject {
   const normalized = normalizeMatrixEntry(senderId);
@@ -278,7 +259,7 @@ export function resolveMatrixMonitorCommandAccess(
       hasControlCommand: params.hasControlCommand,
     },
   });
-  const commandGate = decision.graph.gates.find((gate) => gate.kind === "command");
+  const commandGate = findChannelIngressCommandGate(decision);
   return {
     commandAuthorized: commandGate?.allowed === true,
     shouldBlockControlCommand: commandGate?.command?.shouldBlockControlCommand === true,

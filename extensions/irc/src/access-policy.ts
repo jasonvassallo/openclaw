@@ -1,12 +1,12 @@
 import {
   createChannelIngressPluginId,
+  createChannelIngressMultiIdentifierAdapter,
   decideChannelIngress,
+  findChannelIngressCommandGate,
   resolveChannelIngressState,
-  type ChannelIngressAdapter,
   type ChannelIngressAdapterEntry,
   type ChannelIngressIdentifierKind,
   type ChannelIngressSubject,
-  type RedactedIngressMatch,
 } from "openclaw/plugin-sdk/channel-ingress";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/text-runtime";
 import { buildIrcAllowlistCandidates, normalizeIrcAllowEntry } from "./normalize.js";
@@ -71,27 +71,9 @@ function normalizeIrcIngressEntry(entry: string, index: number): ChannelIngressA
   ];
 }
 
-const ircIngressAdapter: ChannelIngressAdapter = {
-  normalizeEntries({ entries }) {
-    return {
-      matchable: entries.flatMap((entry, index) => normalizeIrcIngressEntry(entry, index)),
-      invalid: [],
-      disabled: [],
-    };
-  },
-  matchSubject({ subject, entries }) {
-    const identifiers = new Set(
-      subject.identifiers.map((identifier) => `${identifier.kind}:${identifier.value}`),
-    );
-    const matchedEntryIds = entries
-      .filter((entry) => entry.value === "*" || identifiers.has(`${entry.kind}:${entry.value}`))
-      .map((entry) => entry.opaqueEntryId);
-    return {
-      matched: matchedEntryIds.length > 0,
-      matchedEntryIds,
-    } satisfies RedactedIngressMatch;
-  },
-};
+const ircIngressAdapter = createChannelIngressMultiIdentifierAdapter({
+  normalizeEntry: normalizeIrcIngressEntry,
+});
 
 function createIrcIngressSubject(message: IrcInboundMessage): ChannelIngressSubject {
   const identifiers: ChannelIngressSubject["identifiers"] = [];
@@ -155,7 +137,7 @@ export async function resolveIrcCommandAccess(params: {
       hasControlCommand: params.hasControlCommand,
     },
   });
-  const commandGate = decision.graph.gates.find((gate) => gate.kind === "command");
+  const commandGate = findChannelIngressCommandGate(decision);
   return {
     commandAuthorized: commandGate?.allowed === true,
     shouldBlockControlCommand: commandGate?.command?.shouldBlockControlCommand === true,
